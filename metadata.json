@@ -1,0 +1,5 @@
+{
+  "name": "Nebula Map",
+  "description": "Visual control plane for Tailscale networks with integrated local AI (Ollama) for network analysis and security scanning.",
+  "requestFramePermissions": []
+}

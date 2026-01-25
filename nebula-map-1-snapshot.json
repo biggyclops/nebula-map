@@ -1,0 +1,21 @@
+
+{
+  "version": "1.0.0",
+  "project_name": "Nebula Map 1",
+  "backup_date": "2025-05-18",
+  "features": [
+    "Tailscale Network Graph Visualization",
+    "Hardware Stats Monitoring (FastAPI + psutil)",
+    "AI Service Scanning (Ollama, ComfyUI, etc.)",
+    "Real-time D3.js Graph Simulation",
+    "AI-Powered Insights via Gemini API",
+    "Interactive Search & Advanced Filtering",
+    "Demo Mode for Standalone Exploration",
+    "Milestone Export System"
+  ],
+  "architecture": {
+    "frontend": "React, Tailwind, D3.js, Lucide Icons",
+    "backend": "FastAPI, Subprocess (Tailscale CLI), psutil",
+    "intelligence": "Google Gemini 3 Flash Preview"
+  }
+}

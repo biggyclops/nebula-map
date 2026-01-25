@@ -1,0 +1,23 @@
+[Unit]
+Description=AsTrA Nebula Map - Tailscale AI Network Visualizer
+After=network.target tailscaled.service
+Wants=tailscaled.service
+
+[Service]
+Type=simple
+# Update User and Group to match your deployment
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/astra-nebula
+ExecStart=/opt/astra-nebula/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
