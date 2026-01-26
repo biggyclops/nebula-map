@@ -43,3 +43,6 @@ ENV/
 
 # Deployment artifacts
 *.zip
+
+# Astra dev artifacts
+.astra/
