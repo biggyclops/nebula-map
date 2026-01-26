@@ -3,6 +3,10 @@
 
 Nebula Map allows you to visualize your Tailscale mesh network, identify AI services running on peers, and monitor hardware performance using a private, AI-assisted interface.
 
+## What is nebula-map?
+
+Nebula Map is a visualization tool for Tailscale networks that helps you explore your mesh topology, discover AI services on connected peers, and monitor system performance. It provides a private, AI-assisted interface that keeps your network data within your Tailscale mesh. The tool integrates with local AI assistants like Ollama, allowing you to interact with your network map using natural language while maintaining privacy.
+
 ## 🌌 Nebula Assistant (Local AI)
 Nebula Map features an integrated AI Assistant designed to run locally on your mesh.
 
@@ -20,6 +24,36 @@ Nebula Map features an integrated AI Assistant designed to run locally on your m
 - **Tailscale installed** and authenticated.
 - **Python 3.10+** for the backend.
 - **Node.js** for the frontend.
+
+## Run locally
+
+### Prerequisites
+- **Node.js LTS** installed
+- **npm** (comes with Node.js)
+
+### Commands
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+3. Open the application in your browser at the localhost URL shown in the terminal (typically `http://localhost:5173` or similar).
+
+### Optional: Build for production
+To build the application for production:
+```bash
+npm run build
+```
+
+To preview the production build locally:
+```bash
+npm run preview
+```
 
 ## Installation (Development)
 1. `pip install fastapi uvicorn psutil httpx`
