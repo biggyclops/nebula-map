@@ -25,6 +25,47 @@ Nebula Map features an integrated AI Assistant designed to run locally on your m
 - **Python 3.10+** for the backend.
 - **Node.js** for the frontend.
 
+## HTTPS/WSS and Tailwind build
+
+### Mixed Content (HTTPS/WSS)
+All API calls and WebSocket connections use **scheme-aware URLs** so an HTTPS page never requests HTTP or ws://, avoiding Mixed Content errors.
+
+- **Default**: Same-origin. API uses `https://` when page is HTTPS; WebSocket uses `wss://` when page is HTTPS.
+- **Optional env overrides** (when API/WS are on a different host):
+  - `VITE_API_ORIGIN` – e.g. `https://api.example.com`
+  - `VITE_WS_ORIGIN` – e.g. `wss://api.example.com`
+
+API paths: `/api/status`, `/api/health`, `/api/peers`, `/api/ai/*`, etc. WebSocket paths (if used): `/v1/events`, etc.
+
+### Tailwind
+Tailwind is bundled locally (no CDN). Run dev or build as usual; styles are built via PostCSS.
+
+### Dev
+```bash
+npm install
+npm run dev
+```
+Opens at `http://localhost:3000` (or the port Vite shows). API is proxied to `VITE_STATUS_API_TARGET` (default `http://127.0.0.1:5050`) for `/api/*` routes.
+
+### Prod build
+```bash
+npm run build
+```
+Output in `dist/`. Serve with your backend (e.g. nebula `main.py`).
+
+## Production run path (no vite preview)
+
+**Port 5173 is NOT used in production.** The Nebula Map UI is served by the Python backend (`main.py`) on port 8000.
+
+- **Build:** `./build.sh` → produces `dist/`
+- **Run:** `./run.sh` → uvicorn serves `dist/` + API on `127.0.0.1:8000`
+- **Deploy:** astra-nebula@nebula.service runs from `/opt/astra-nebula` on port 8000
+
+Do not use `npm run preview` for production. Use `./run.sh` or the systemd service.
+
+**Verify:** `./scripts/verify_ports.sh` checks 5050 (astra-core), 8000 (nebula UI), and that 5173 is free.
+If port 5173 is stuck: `./scripts/verify_ports.sh --fix-5173` kills any stale vite preview.
+
 ## Run locally
 
 ### Prerequisites

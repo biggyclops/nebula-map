@@ -2,7 +2,33 @@
 import * as d3 from 'd3';
 
 export type NodeStatus = "online" | "idle" | "busy" | "degraded" | "offline";
-export type NodeRole = "host" | "ai_host" | "gpu" | "exit" | "ephemeral";
+export type NodeRole = "host" | "ai_host" | "gpu" | "exit" | "ephemeral" | "gateway" | "storage" | "ai";
+
+// ============================================================================
+// DATA-DRIVEN TOPOLOGY TYPES
+// These types support the deterministic topology graph that renders from
+// /api/status instead of requiring AI_CORE inference.
+// ============================================================================
+
+/** Node data from GET /api/status - deterministic, no AI dependency */
+export interface StatusNode {
+  name: string;
+  role: "storage" | "gateway" | "ai" | "gpu";
+  online: boolean;
+}
+
+/** Response from GET /api/status endpoint */
+export interface StatusResponse {
+  nodes: StatusNode[];
+}
+
+/** Topology state with metadata for UI feedback */
+export interface TopologyState {
+  nodes: StatusNode[];
+  isLive: boolean;         // true if loaded from API, false if from cache
+  lastUpdated: number;     // timestamp
+  error: string | null;    // non-blocking error message for warning badge
+}
 
 export type VisualState = {
   opacity: number;          // 0–1
@@ -12,7 +38,7 @@ export type VisualState = {
   pulseRate: number;        // Hz (0 = none)
   flicker: number;          // 0–1 (stability/jitter)
   distortion: number;       // 0–1 (morphing/glitch)
-  ringState?: "stable" | "collapsing" | "hidden";
+  ringState?: "stable" | "collapsing" | "hidden" | "dashed";
   linkStyle: "flow" | "thin" | "dashed" | "none";
   surgeSpeed: number;       // particle velocity multiplier
   particleDensity: number;  // number of particles per link
