@@ -8,6 +8,14 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        // Proxy all /api/* to backend (default: astra-core on 5050)
+        // Same-origin in prod when nebula main.py proxies; dev uses this.
+        proxy: {
+          '/api': {
+            target: env.VITE_STATUS_API_TARGET || 'http://127.0.0.1:5050',
+            changeOrigin: true,
+          },
+        },
       },
       plugins: [react()],
       define: {

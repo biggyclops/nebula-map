@@ -124,9 +124,23 @@ MOCK_DATA = {
     }
 }
 
+# Status API is provided by astra-core (port 5050). Proxy so frontend uses same origin.
+STATUS_API_URL = os.environ.get("ASTRA_STATUS_API_URL", "http://127.0.0.1:5050")
+
 @app.get("/api/health")
 async def health_check():
     return {"ok": True}
+
+@app.get("/api/status")
+async def proxy_status():
+    """Proxy to astra-core/astra-status for topology node data. Same-origin for frontend."""
+    async with httpx.AsyncClient() as client:
+        try:
+            r = await client.get(f"{STATUS_API_URL}/api/status", timeout=5.0)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Status backend unreachable: {e}")
 
 @app.get("/api/peers")
 async def get_peers():

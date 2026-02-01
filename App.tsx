@@ -1,6 +1,14 @@
+// ============================================================================
+// ASTRA VISUAL CORTEX - MAIN APPLICATION
+// 
+// TOPOLOGY IS NO LONGER AI-GATED:
+// The graph now renders deterministically from /api/status data.
+// No AI_CORE inference required - nodes appear immediately.
+// Offline nodes are dimmed, never hidden. No empty canvas states.
+// ============================================================================
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { TailscalePeer, HardwareStats, NodeStatus, NodeRole, AIConfig } from './types';
+import { TailscalePeer, HardwareStats, NodeStatus, NodeRole, AIConfig, StatusNode } from './types';
 import * as api from './services/api';
 import * as gemini from './services/gemini';
 import * as aiApi from './services/ai';
@@ -10,6 +18,7 @@ import NebulaAssistant from './components/NebulaAssistant';
 import AISettings from './components/AISettings';
 import NebulaBackground from './components/NebulaBackground';
 import { useNebulaActivity } from './hooks/useNebulaActivity';
+import { useTopologyStatus } from './hooks/useTopologyStatus';
 import { 
   Network, 
   RefreshCw, 
@@ -38,6 +47,7 @@ import {
 const App: React.FC = () => {
   const [peers, setPeers] = useState<TailscalePeer[]>([]);
   const [selectedPeer, setSelectedPeer] = useState<TailscalePeer | null>(null);
+  const [selectedStatusNode, setSelectedStatusNode] = useState<StatusNode | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorType, setErrorType] = useState<'none' | 'offline' | 'api'>('none');
   const [errorMessage, setErrorMessage] = useState("");
@@ -58,6 +68,13 @@ const App: React.FC = () => {
 
   // Nebula Animation Control
   const { isActive: isWarping, focalPoint, startActivity, stopActivity } = useNebulaActivity();
+
+  // ============================================================================
+  // DATA-DRIVEN TOPOLOGY
+  // Uses /api/status for deterministic rendering - NO AI_CORE DEPENDENCY
+  // The topology renders immediately with all nodes visible.
+  // ============================================================================
+  const { topology, refresh: refreshTopology, isLoading: isTopologyLoading } = useTopologyStatus();
 
   useEffect(() => {
     const fetchConfig = async () => {
@@ -130,8 +147,17 @@ const App: React.FC = () => {
       });
 
       setPeers(processedPeers);
-      const insightText = await gemini.getNetworkInsights(processedPeers);
-      setInsights(insightText || "Mesh synaptic links synchronized.");
+      
+      // TOPOLOGY STATUS MESSAGE
+      // No longer depends on AI_CORE - shows deterministic status from live feed
+      // AI insights are optional enhancement, not a gate for rendering
+      try {
+        const insightText = await gemini.getNetworkInsights(processedPeers);
+        setInsights(insightText || "Topology loaded from live status feed.");
+      } catch {
+        // AI insights failed - show deterministic status message instead
+        setInsights("Topology loaded from live status feed.");
+      }
 
     } catch (error: any) {
       console.error('🌌 AsTrA Sensing Error:', error.message);
@@ -251,7 +277,10 @@ const App: React.FC = () => {
                 <span className="text-slate-400 font-medium text-xs uppercase tracking-[0.2em]">Visual Cortex Overlay</span>
               </h1>
               <div className="flex items-center gap-2 mt-1.5 font-mono text-[9px] text-slate-500 uppercase tracking-widest">
-                <span className="text-emerald-500/60 font-bold">● System_Nominal</span>
+                {/* Status indicator reflects live topology state, not AI_CORE */}
+                <span className={`${topology.isLive ? 'text-emerald-500/60' : 'text-amber-500/60'} font-bold`}>
+                  ● {topology.isLive ? 'Feed_Live' : 'Feed_Cached'}
+                </span>
                 <span className="mx-1 opacity-20">|</span>
                 <span>Active_Sense: Topology_Grid</span>
               </div>
@@ -260,9 +289,19 @@ const App: React.FC = () => {
 
           <div className="flex items-center gap-6">
              <div className="flex flex-col items-end gap-1">
-                <span className="text-[9px] font-mono text-slate-600 uppercase font-bold">Synaptic_Sync</span>
+                <span className="text-[9px] font-mono text-slate-600 uppercase font-bold">Topology_Sync</span>
                 <div className="flex gap-1">
-                    {[1,2,3,4].map(i => <div key={i} className={`w-3 h-1 rounded-full ${loading ? 'bg-slate-800' : 'bg-emerald-500/40'}`} />)}
+                    {/* Status bars: reflect topology feed state, not AI state */}
+                    {[1,2,3,4].map(i => (
+                      <div 
+                        key={i} 
+                        className={`w-3 h-1 rounded-full transition-colors ${
+                          isTopologyLoading ? 'bg-slate-800 animate-pulse' : 
+                          topology.isLive ? 'bg-emerald-500/40' : 
+                          'bg-amber-500/40'
+                        }`} 
+                      />
+                    ))}
                 </div>
              </div>
           </div>
@@ -321,23 +360,80 @@ const App: React.FC = () => {
           )}
 
           <div className="flex-1 w-full relative">
-            <NebulaGraph peers={filteredPeers} onSelectNode={setSelectedPeer} />
+            {/* 
+              TOPOLOGY GRAPH - DATA-DRIVEN, NOT AI-GATED
+              
+              Prioritizes statusNodes from /api/status for deterministic rendering.
+              Falls back to filteredPeers for legacy compatibility.
+              
+              Key behaviors:
+              - Renders immediately without waiting for AI_CORE
+              - Shows ALL nodes (offline nodes are dimmed, not hidden)
+              - Gateway node (minibeast) is always central hub
+              - No empty canvas states - always shows something
+            */}
+            <NebulaGraph 
+              statusNodes={topology.nodes.length > 0 ? topology.nodes : undefined}
+              peers={filteredPeers} 
+              onSelectNode={setSelectedPeer}
+              onSelectStatusNode={setSelectedStatusNode}
+            />
+
+            {/* DEBUG OVERLAY - Proves we receive data; renders even if graph fails */}
+            <div className="absolute bottom-10 right-8 w-56 glass-panel p-4 rounded-xl border border-amber-500/30 bg-amber-950/20 z-30 font-mono text-[10px]">
+              <div className="text-amber-400 font-bold uppercase tracking-wider mb-2">Debug: Status Feed</div>
+              <div className="space-y-1 text-slate-400">
+                <div>Last fetch: {topology.lastUpdated ? new Date(topology.lastUpdated).toLocaleTimeString() : '—'}</div>
+                <div>nodes.length: {topology.nodes.length}</div>
+                <div className="mt-2 text-slate-300">
+                  {topology.nodes.map(n => (
+                    <div key={n.name} className="flex justify-between gap-4">
+                      <span>{n.name}</span>
+                      <span className={n.online ? 'text-emerald-400' : 'text-slate-500'}>{n.online ? 'online' : 'offline'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
             
-            {/* Contextual Analysis Overlay */}
+            {/* Topology Status Overlay - Data-driven, not AI-gated */}
             <div className="absolute top-8 right-8 w-80 pointer-events-none group">
               <div className="glass-panel p-6 rounded-3xl shadow-2xl pointer-events-auto bg-indigo-950/10 border border-indigo-500/10 backdrop-blur-xl group-hover:border-indigo-500/30 transition-all">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                    <Activity size={14} className="text-indigo-500" /> Heuristic_Briefing
+                    <Activity size={14} className="text-indigo-500" /> Topology_Status
                   </h3>
-                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                  {/* Status indicator: green = live, amber = stale/cached */}
+                  <div className={`w-1.5 h-1.5 rounded-full ${topology.isLive ? 'bg-emerald-500' : 'bg-amber-500'} animate-pulse`} />
                 </div>
+                
+                {/* Warning badge for API failures - non-blocking */}
+                {topology.error && (
+                  <div className="mb-3 flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                    <AlertCircle size={12} className="text-amber-500" />
+                    <span className="text-[9px] text-amber-400 font-mono">Using cached data</span>
+                  </div>
+                )}
+                
                 <div className="text-[11px] text-slate-300 leading-relaxed max-h-48 overflow-y-auto pr-3 custom-scrollbar font-light italic">
-                  {insights}
+                  {/* Show live status message instead of AI-gated heuristics */}
+                  {topology.isLive 
+                    ? "Topology loaded from live status feed."
+                    : insights || "Topology loaded from cached data."}
                 </div>
+                
+                {/* Node count summary */}
+                <div className="mt-4 pt-3 border-t border-white/5">
+                  <div className="flex items-center justify-between text-[9px] font-mono text-slate-500">
+                    <span>Nodes: {topology.nodes.length}</span>
+                    <span>Online: {topology.nodes.filter(n => n.online).length}</span>
+                    <span>Offline: {topology.nodes.filter(n => !n.online).length}</span>
+                  </div>
+                </div>
+                
                 {aiConfig && (
                    <button className="mt-5 w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-2xl text-[9px] font-bold uppercase tracking-widest text-indigo-400 transition-all border border-indigo-500/10 hover:border-indigo-500/30">
-                    <Sparkles size={12} /> Scan_For_Entropy
+                    <Sparkles size={12} /> Analyze_Topology
                   </button>
                 )}
               </div>
@@ -349,11 +445,13 @@ const App: React.FC = () => {
         <footer className="h-10 border-t border-white/5 glass-panel flex items-center justify-between px-10 text-[9px] font-mono text-slate-600 uppercase tracking-[0.3em]">
             <div className="flex gap-8">
                 <span>Core: Nominal</span>
-                <span>Sense: Nebula_Topology</span>
-                <span className="text-indigo-500/60 font-bold">Uplink: Synchronized</span>
+                <span>Nodes: {topology.nodes.length}</span>
+                <span className={`${topology.isLive ? 'text-emerald-500/60' : 'text-amber-500/60'} font-bold`}>
+                  Status_Feed: {topology.isLive ? 'Live' : 'Cached'}
+                </span>
             </div>
             <div className="flex gap-4 items-center">
-                <span>Lat: {loading ? '--' : '42ms'}</span>
+                <span>Lat: {loading || isTopologyLoading ? '--' : '42ms'}</span>
                 <div className="h-3 w-px bg-white/5" />
                 <span>Enc: WireGuard_Operational</span>
             </div>

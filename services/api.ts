@@ -1,9 +1,54 @@
+import { TailscalePeer, AIService, HardwareStats, StatusResponse } from '../types';
+import { getApiBase } from '../lib/urls';
 
-import { TailscalePeer, AIService, HardwareStats } from '../types';
+// ============================================================================
+// API BASE - scheme-aware, no Mixed Content
+// Uses same origin by default; VITE_API_ORIGIN overrides when set.
+// ============================================================================
+
+const api = (path: string) => {
+  const base = getApiBase();
+  return base ? `${base}${path.startsWith('/') ? path : '/' + path}` : path;
+};
+
+const isDev = () => {
+  try {
+    return !!(import.meta as any).env?.DEV;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Fetch topology status from /api/status
+ * Returns node list with name, role, and online status.
+ */
+export const fetchStatus = async (): Promise<StatusResponse> => {
+  const url = api('/api/status');
+  if (isDev()) console.log('[fetchStatus] GET', url);
+
+  const response = await fetch(url, {
+    method: 'GET',
+    cache: 'no-cache'
+  });
+
+  const raw = await response.text();
+  if (isDev()) console.log('[fetchStatus] status=', response.status, 'raw=', raw.slice(0, 500));
+
+  if (!response.ok) {
+    const err = new Error(`Status API error: ${response.status}`);
+    if (isDev()) console.error('[fetchStatus] ERROR', err.message);
+    throw err;
+  }
+
+  const data: StatusResponse = JSON.parse(raw);
+  if (isDev()) console.log('[fetchStatus] mapped nodes=', data?.nodes?.map(n => `${n.name}:${n.online}`) ?? 'null');
+  return data;
+};
 
 export const ping = async (): Promise<boolean> => {
   try {
-    const response = await fetch('/api/health', { 
+    const response = await fetch(api('/api/health'), { 
       method: 'GET',
       cache: 'no-cache'
     });
@@ -16,7 +61,7 @@ export const ping = async (): Promise<boolean> => {
 
 export const fetchPeers = async (): Promise<TailscalePeer[]> => {
   try {
-    const response = await fetch('/api/peers', {
+    const response = await fetch(api('/api/peers'), {
       method: 'GET'
     });
     
@@ -102,7 +147,7 @@ export const fetchDemoPeers = (): TailscalePeer[] => {
 
 export const scanNode = async (ip: string): Promise<AIService[]> => {
   try {
-    const response = await fetch(`/api/scan/${ip}`);
+    const response = await fetch(api(`/api/scan/${ip}`));
     if (!response.ok) return [];
     const data = await response.json();
     return data.services || [];
@@ -113,7 +158,7 @@ export const scanNode = async (ip: string): Promise<AIService[]> => {
 
 export const getHardwareStats = async (): Promise<HardwareStats | null> => {
   try {
-    const response = await fetch('/api/stats');
+    const response = await fetch(api('/api/stats'));
     if (!response.ok) return null;
     return await response.json();
   } catch {

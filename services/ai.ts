@@ -1,8 +1,13 @@
-
 import { AIConfig, ChatMessage } from '../types';
+import { getApiBase } from '../lib/urls';
+
+const api = (path: string) => {
+  const base = getApiBase();
+  return base ? `${base}${path.startsWith('/') ? path : '/' + path}` : path;
+};
 
 export const saveAIConfig = async (config: AIConfig) => {
-  const response = await fetch('/api/ai/config', {
+  const response = await fetch(api('/api/ai/config'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config)
@@ -12,7 +17,7 @@ export const saveAIConfig = async (config: AIConfig) => {
 
 export const getAIConfig = async (): Promise<AIConfig | null> => {
   try {
-    const response = await fetch('/api/ai/config');
+    const response = await fetch(api('/api/ai/config'));
     if (!response.ok) return null;
     return await response.json();
   } catch {
@@ -21,7 +26,7 @@ export const getAIConfig = async (): Promise<AIConfig | null> => {
 };
 
 export const chatWithAssistant = async (message: string): Promise<string> => {
-  const response = await fetch('/api/ai/chat', {
+  const response = await fetch(api('/api/ai/chat'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message })
@@ -31,7 +36,7 @@ export const chatWithAssistant = async (message: string): Promise<string> => {
 };
 
 export const queryNLQ = async (query: string): Promise<any> => {
-  const response = await fetch('/api/ai/nlq', {
+  const response = await fetch(api('/api/ai/nlq'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query })
@@ -40,7 +45,7 @@ export const queryNLQ = async (query: string): Promise<any> => {
 };
 
 export const explainNode = async (nodeData: any): Promise<string> => {
-  const response = await fetch('/api/ai/explain', {
+  const response = await fetch(api('/api/ai/explain'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(nodeData)
@@ -50,7 +55,7 @@ export const explainNode = async (nodeData: any): Promise<string> => {
 };
 
 export const generateNarrative = async (peers: any[]): Promise<string> => {
-  const response = await fetch('/api/ai/report', {
+  const response = await fetch(api('/api/ai/report'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(peers)

@@ -1,42 +1,103 @@
-
 import React, { useEffect, useRef, useMemo } from 'react';
 import * as d3 from 'd3';
-import { TailscalePeer, NetworkGraphNode, NetworkGraphLink, VisualState } from '../types';
-import { getVisualState } from '../visual/getVisualState';
+import { TailscalePeer, StatusNode, NetworkGraphNode, NetworkGraphLink, VisualState, NodeRole, NodeStatus } from '../types';
+import { getVisualState, getRoleColor } from '../visual/getVisualState';
+
+// ============================================================================
+// NEBULA GRAPH COMPONENT
+// 
+// TOPOLOGY IS NO LONGER AI-GATED:
+// This component now renders deterministically from /api/status data.
+// - All nodes render immediately regardless of AI_CORE state
+// - Gateway node (minibeast) is always the central hub
+// - Offline nodes are dimmed (opacity 0.4) with dashed ring, never hidden
+// - Links always flow from gateway → all other nodes
+// ============================================================================
 
 interface NebulaGraphProps {
-  peers: TailscalePeer[];
-  onSelectNode: (peer: TailscalePeer) => void;
+  peers?: TailscalePeer[];              // Legacy peer data (optional)
+  statusNodes?: StatusNode[];           // New status-based nodes (preferred)
+  onSelectNode?: (peer: TailscalePeer | null) => void;
+  onSelectStatusNode?: (node: StatusNode | null) => void;
 }
 
-const NebulaGraph: React.FC<NebulaGraphProps> = ({ peers, onSelectNode }) => {
+const NebulaGraph: React.FC<NebulaGraphProps> = ({ 
+  peers = [], 
+  statusNodes,
+  onSelectNode, 
+  onSelectStatusNode 
+}) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const prefersReducedMotion = useMemo(() => 
     window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
 
   useEffect(() => {
-    if (!svgRef.current || peers.length === 0) return;
+    if (!svgRef.current) return;
+    
+    // DETERMINISTIC NODE BUILDING:
+    // Prefer statusNodes from /api/status - no AI inference required
+    // Fall back to legacy peers if statusNodes not provided
+    const hasStatusNodes = statusNodes && statusNodes.length > 0;
+    const hasPeers = peers && peers.length > 0;
+    
+    if (!hasStatusNodes && !hasPeers) return;
 
     const width = svgRef.current.clientWidth;
     const height = svgRef.current.clientHeight;
 
-    const nodes: NetworkGraphNode[] = peers.map(p => {
-      const status = p.status || (p.Online ? "online" : "offline");
-      const role = p.role || "host";
-      return {
-        id: p.ID,
-        name: p.HostName || p.DNSName.split('.')[0],
-        ip: p.TailscaleIPs[0],
-        status,
-        role,
-        visual: getVisualState(status, role, { reducedMotion: prefersReducedMotion })
-      };
-    });
+    let nodes: NetworkGraphNode[];
+    let gatewayId: string | null = null;
 
+    if (hasStatusNodes) {
+      // BUILD FROM STATUS API DATA
+      // This path bypasses all AI_CORE dependencies
+      nodes = statusNodes.map(n => {
+        const status: NodeStatus = n.online ? "online" : "offline";
+        const role: NodeRole = n.role as NodeRole;
+        
+        // Track gateway node for central positioning
+        if (n.role === "gateway") {
+          gatewayId = n.name;
+        }
+        
+        return {
+          id: n.name,
+          name: n.name,
+          ip: '',  // Status API doesn't provide IPs
+          status,
+          role,
+          visual: getVisualState(status, role, { reducedMotion: prefersReducedMotion })
+        };
+      });
+    } else {
+      // LEGACY PATH: Build from TailscalePeer data
+      nodes = peers.map(p => {
+        const status = p.status || (p.Online ? "online" : "offline");
+        const role = p.role || "host";
+        
+        if (p.ID === 'self') gatewayId = p.ID;
+        
+        return {
+          id: p.ID,
+          name: p.HostName || p.DNSName.split('.')[0],
+          ip: p.TailscaleIPs[0],
+          status,
+          role,
+          visual: getVisualState(status, role, { reducedMotion: prefersReducedMotion })
+        };
+      });
+      
+      gatewayId = gatewayId || 'self';
+    }
+
+    // LINK TOPOLOGY:
+    // Gateway connects to ALL other nodes. NEVER filter out nodes - include offline.
+    // If no gateway in list, use first node as hub. Single-node graphs get no links (still render).
+    const hubId = gatewayId ?? nodes[0]?.id ?? 'minibeast';
     const links: NetworkGraphLink[] = nodes
-      .filter(n => n.id !== 'self')
+      .filter(n => n.id !== hubId)
       .map(n => ({
-        source: 'self',
+        source: hubId,
         target: n.id,
         linkStyle: n.visual.linkStyle,
         surgeSpeed: n.visual.surgeSpeed,
@@ -45,6 +106,9 @@ const NebulaGraph: React.FC<NebulaGraphProps> = ({ peers, onSelectNode }) => {
 
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
+
+    // Wrap in zoom container for auto-fit; applied after simulation stabilizes
+    const zoomG = svg.append("g").attr("class", "zoom-container");
 
     const defs = svg.append("defs");
     
@@ -69,7 +133,7 @@ const NebulaGraph: React.FC<NebulaGraphProps> = ({ peers, onSelectNode }) => {
       .force("charge", d3.forceManyBody().strength(-800))
       .force("center", d3.forceCenter(width / 2, height / 2));
 
-    const linkGroup = svg.append("g").attr("class", "links");
+    const linkGroup = zoomG.append("g").attr("class", "links");
     
     const linkLines = linkGroup.selectAll(".link-line")
       .data(links)
@@ -95,15 +159,21 @@ const NebulaGraph: React.FC<NebulaGraphProps> = ({ peers, onSelectNode }) => {
       .attr("filter", "url(#nebula-glow)")
       .style("opacity", 0.5);
 
-    const nodeGroup = svg.append("g").attr("class", "nodes");
+    const nodeGroup = zoomG.append("g").attr("class", "nodes");
     
     const node = nodeGroup.selectAll(".node")
       .data(nodes)
       .join("g")
       .attr("class", "node cursor-pointer group")
       .on("click", (event, d) => {
-        const peer = peers.find(p => p.ID === d.id);
-        if (peer) onSelectNode(peer);
+        // Handle both legacy peer selection and new status node selection
+        if (statusNodes && onSelectStatusNode) {
+          const statusNode = statusNodes.find(n => n.name === d.id);
+          if (statusNode) onSelectStatusNode(statusNode);
+        } else if (onSelectNode) {
+          const peer = peers.find(p => p.ID === d.id);
+          if (peer) onSelectNode(peer);
+        }
       })
       .call(d3.drag<any, any>()
         .on("start", dragstarted)
@@ -115,16 +185,29 @@ const NebulaGraph: React.FC<NebulaGraphProps> = ({ peers, onSelectNode }) => {
       const g = d3.select(this);
       const v = d.visual;
 
-      const baseColor = d.role === "host" ? d3.rgb("#818cf8") : 
-                        d.role === "ai_host" ? d3.rgb("#c084fc") :
-                        d.role === "gpu" ? d3.rgb("#22d3ee") : 
-                        d.role === "exit" ? d3.rgb("#f472b6") : d3.rgb("#475569");
+      // ROLE-BASED COLOR MAPPING (deterministic, no AI dependency)
+      // Uses getRoleColor for consistent styling from /api/status data
+      const baseColor = d3.rgb(getRoleColor(d.role));
       
       const color = v.colorShift > 0 
         ? baseColor.brighter(v.colorShift * 2.5) 
         : baseColor.darker(Math.abs(v.colorShift) * 1.5);
 
-      const coreSize = (d.role === "host" ? 14 : 10) * v.glowRadius;
+      // Gateway nodes are larger (central hub in topology)
+      const coreSize = (d.role === "gateway" ? 16 : d.role === "host" ? 14 : 10) * v.glowRadius;
+      
+      // OFFLINE NODES: Dashed ring indicator
+      // Renders nodes as dimmed with visual cue, never hides them
+      if (v.ringState === "dashed") {
+        g.append("circle")
+          .attr("r", coreSize + 4)
+          .attr("fill", "none")
+          .attr("stroke", color.toString())
+          .attr("stroke-width", 1.5)
+          .attr("stroke-dasharray", "4,3")
+          .style("opacity", 0.5);
+      }
+      
       const core = g.append("circle")
         .attr("r", coreSize)
         .attr("fill", color.toString())
@@ -198,31 +281,55 @@ const NebulaGraph: React.FC<NebulaGraphProps> = ({ peers, onSelectNode }) => {
       event.subject.fy = null;
     }
 
-    // Fix: Wrap simulation.stop() in an arrow function to ensure it returns void for React cleanup
+    // Auto-fit: center and fit nodes in viewport after simulation stabilizes
+    simulation.on("end", () => {
+      const padding = 60;
+      const nodeR = 24;
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      nodes.forEach((d: any) => {
+        if (d.x != null && d.y != null) {
+          minX = Math.min(minX, d.x - nodeR);
+          maxX = Math.max(maxX, d.x + nodeR);
+          minY = Math.min(minY, d.y - nodeR);
+          maxY = Math.max(maxY, d.y + nodeR);
+        }
+      });
+      if (minX === Infinity) return;
+      const bw = maxX - minX + padding * 2;
+      const bh = maxY - minY + padding * 2;
+      const scale = Math.min(width / bw, height / bh, 1.8);
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      zoomG.attr("transform", `translate(${width/2},${height/2}) scale(${scale}) translate(${-cx},${-cy})`);
+    });
+
     return () => { simulation.stop(); };
-  }, [peers, prefersReducedMotion]);
+  }, [peers, statusNodes, prefersReducedMotion, onSelectNode, onSelectStatusNode]);
 
   return (
     <div className="w-full h-full relative overflow-hidden rounded-3xl bg-black/60 border border-white/5 shadow-2xl">
       <svg ref={svgRef} className="w-full h-full" />
       
-      {/* Visual cortex diagnostic legend */}
+      {/* Visual cortex diagnostic legend - Updated for data-driven topology */}
       <div className="absolute bottom-10 left-10 flex flex-col gap-6 pointer-events-none">
         <div className="flex flex-col gap-1.5">
-          <span className="text-[8px] font-mono font-bold text-slate-600 uppercase tracking-[0.3em]">Cortex_Chromatic_Overlay</span>
-          <div className="flex gap-4">
-            <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-indigo-500" /> Host</div>
+          <span className="text-[8px] font-mono font-bold text-slate-600 uppercase tracking-[0.3em]">Topology_Role_Map</span>
+          <div className="flex gap-4 text-[9px] text-slate-400 font-mono">
+            <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-pink-400" /> Gateway</div>
+            <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-purple-500" /> Storage</div>
+            <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-indigo-500" /> AI</div>
             <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> GPU</div>
-            <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-purple-500" /> AI_Core</div>
           </div>
         </div>
         
         <div className="flex flex-col gap-1.5">
-          <span className="text-[8px] font-mono font-bold text-slate-600 uppercase tracking-[0.3em]">Synaptic_State</span>
+          <span className="text-[8px] font-mono font-bold text-slate-600 uppercase tracking-[0.3em]">Node_Status</span>
           <div className="flex gap-6 text-[9px] text-slate-500 font-mono italic">
-            <span className="flex items-center gap-2"><div className="w-1 h-3 bg-indigo-500 opacity-50 animate-pulse" /> Pulse: Metabolic Load</span>
-            <span className="flex items-center gap-2"><div className="w-3 h-1 bg-pink-400 opacity-40" /> Flicker: Signal Jitter</span>
-            <span className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-slate-800" /> Static: Link Inert</span>
+            <span className="flex items-center gap-2"><div className="w-1 h-3 bg-indigo-500 opacity-50 animate-pulse" /> Online: Active</span>
+            <span className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full border border-dashed border-slate-500 opacity-40" /> 
+              Offline: Dimmed
+            </span>
           </div>
         </div>
       </div>
