@@ -416,10 +416,12 @@ const App: React.FC = () => {
                 )}
                 
                 <div className="text-[11px] text-slate-300 leading-relaxed max-h-48 overflow-y-auto pr-3 custom-scrollbar font-light italic">
-                  {/* Show live status message instead of AI-gated heuristics */}
+                  {/* Keep status copy aligned with live/cached feed state */}
                   {topology.isLive 
                     ? "Topology loaded from live status feed."
-                    : insights || "Topology loaded from cached data."}
+                    : topology.error
+                      ? "Topology loaded from cached/local fallback data."
+                      : insights || "Topology loaded from cached data."}
                 </div>
                 
                 {/* Node count summary */}
