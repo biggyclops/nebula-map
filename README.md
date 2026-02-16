@@ -42,10 +42,14 @@ Tailwind is bundled locally (no CDN). Run dev or build as usual; styles are buil
 
 ### Dev
 ```bash
+# Terminal 1: start nebula backend
+python main.py
+
+# Terminal 2: start Vite frontend
 npm install
 npm run dev
 ```
-Opens at `http://localhost:3000` (or the port Vite shows). API is proxied to `VITE_STATUS_API_TARGET` (default `http://127.0.0.1:5050`) for `/api/*` routes.
+Opens at `http://localhost:3000` (or the port Vite shows). API is proxied to `VITE_API_PROXY_TARGET` (default `http://127.0.0.1:8000`) for `/api/*` routes. `VITE_STATUS_API_TARGET` is still accepted as a backward-compatible alias.
 
 ### Prod build
 ```bash

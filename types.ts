@@ -20,6 +20,8 @@ export interface StatusNode {
 /** Response from GET /api/status endpoint */
 export interface StatusResponse {
   nodes: StatusNode[];
+  source?: 'astra-core' | 'nebula-fallback';
+  error?: string;
 }
 
 /** Topology state with metadata for UI feedback */

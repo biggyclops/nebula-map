@@ -8,7 +8,7 @@ import os
 import re
 import httpx
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -127,20 +127,125 @@ MOCK_DATA = {
 # Status API is provided by astra-core (port 5050). Proxy so frontend uses same origin.
 STATUS_API_URL = os.environ.get("ASTRA_STATUS_API_URL", "http://127.0.0.1:5050")
 
+DEFAULT_STATUS_NODES = [
+    {"name": "minibeast", "role": "gateway", "online": True},
+    {"name": "hermes", "role": "storage", "online": False},
+    {"name": "kratos", "role": "ai", "online": False},
+    {"name": "hades", "role": "gpu", "online": False},
+]
+
+VALID_STATUS_ROLES = {"gateway", "storage", "ai", "gpu"}
+
+def _coerce_online(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes", "online", "up"}
+    return bool(value)
+
+def _infer_role(hostname: str, is_self: bool) -> str:
+    if is_self:
+        return "gateway"
+    h = (hostname or "").lower()
+    if any(k in h for k in ("gateway", "router", "edge")):
+        return "gateway"
+    if any(k in h for k in ("gpu", "cuda", "rtx", "hades")):
+        return "gpu"
+    if any(k in h for k in ("ai", "llm", "ollama", "kratos")):
+        return "ai"
+    if any(k in h for k in ("storage", "nas", "backup", "hermes")):
+        return "storage"
+    return "storage"
+
+def _build_fallback_status_nodes() -> List[Dict[str, Any]]:
+    try:
+        result = subprocess.run(["tailscale", "status", "--json"], capture_output=True, text=True)
+        data = json.loads(result.stdout) if result.returncode == 0 else MOCK_DATA
+    except Exception:
+        data = MOCK_DATA
+
+    nodes: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add_node(raw_name: str, online: Any, is_self: bool = False) -> None:
+        name = (raw_name or "").strip()
+        if not name:
+            return
+        key = name.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        nodes.append({
+            "name": name,
+            "role": _infer_role(name, is_self),
+            "online": _coerce_online(online),
+        })
+
+    self_node = data.get("Self") if isinstance(data, dict) else None
+    if isinstance(self_node, dict):
+        self_name = self_node.get("HostName") or self_node.get("DNSName", "").split(".")[0] or "minibeast"
+        add_node(self_name, self_node.get("Online", True), True)
+
+    peers = data.get("Peer", {}) if isinstance(data, dict) else {}
+    if isinstance(peers, dict):
+        for peer_data in peers.values():
+            if not isinstance(peer_data, dict):
+                continue
+            peer_name = peer_data.get("HostName") or peer_data.get("DNSName", "").split(".")[0]
+            add_node(peer_name, peer_data.get("Online", False))
+
+    if nodes:
+        return nodes
+    return [dict(node) for node in DEFAULT_STATUS_NODES]
+
 @app.get("/api/health")
 async def health_check():
     return {"ok": True}
 
 @app.get("/api/status")
 async def proxy_status():
-    """Proxy to astra-core/astra-status for topology node data. Same-origin for frontend."""
+    """
+    Proxy to astra-core/astra-status for topology node data.
+    Falls back to local tailscale-derived nodes if astra-core is unavailable.
+    """
     async with httpx.AsyncClient() as client:
         try:
             r = await client.get(f"{STATUS_API_URL}/api/status", timeout=5.0)
             r.raise_for_status()
-            return r.json()
+            payload = r.json()
+            raw_nodes = payload.get("nodes") if isinstance(payload, dict) else None
+            if not isinstance(raw_nodes, list):
+                raise ValueError("status payload missing nodes[]")
+
+            normalized_nodes: List[Dict[str, Any]] = []
+            for node in raw_nodes:
+                if not isinstance(node, dict):
+                    continue
+                name = str(node.get("name", "")).strip()
+                role = str(node.get("role", "")).strip().lower()
+                if not name:
+                    continue
+                if role not in VALID_STATUS_ROLES:
+                    role = _infer_role(name, False)
+                normalized_nodes.append({
+                    "name": name,
+                    "role": role,
+                    "online": _coerce_online(node.get("online", False)),
+                })
+
+            if not normalized_nodes:
+                raise ValueError("status payload had no valid nodes")
+
+            return {
+                "nodes": normalized_nodes,
+                "source": "astra-core",
+            }
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Status backend unreachable: {e}")
+            return {
+                "nodes": _build_fallback_status_nodes(),
+                "source": "nebula-fallback",
+                "error": f"Status backend unreachable: {e}",
+            }
 
 @app.get("/api/peers")
 async def get_peers():
