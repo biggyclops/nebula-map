@@ -87,6 +87,7 @@ export function useTopologyStatus(): UseTopologyStatusReturn {
     };
     try {
       const response = await api.fetchStatus();
+      const isFallback = response.source === 'nebula-fallback';
 
       // Validate response has nodes
       if (!response.nodes || !Array.isArray(response.nodes)) {
@@ -95,6 +96,9 @@ export function useTopologyStatus(): UseTopologyStatusReturn {
 
       if (isDev()) {
         console.log('[useTopologyStatus] received nodes:', response.nodes.length, response.nodes);
+        if (isFallback) {
+          console.warn('[useTopologyStatus] using backend fallback:', response.error || 'status backend unreachable');
+        }
       }
 
       // Update cache with fresh data
@@ -102,9 +106,11 @@ export function useTopologyStatus(): UseTopologyStatusReturn {
 
       setTopology({
         nodes: response.nodes,
-        isLive: true,
+        isLive: !isFallback,
         lastUpdated: Date.now(),
-        error: null
+        error: isFallback
+          ? (response.error || 'Status backend unavailable: using local fallback')
+          : null
       });
     } catch (error: any) {
       if (isDev()) {

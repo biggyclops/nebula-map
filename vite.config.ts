@@ -4,15 +4,19 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
+    const apiProxyTarget =
+      env.VITE_API_PROXY_TARGET ||
+      env.VITE_STATUS_API_TARGET ||
+      'http://127.0.0.1:8000';
     return {
       server: {
         port: 3000,
         host: '0.0.0.0',
-        // Proxy all /api/* to backend (default: astra-core on 5050)
-        // Same-origin in prod when nebula main.py proxies; dev uses this.
+        // Proxy all /api/* to Nebula backend (main.py on 8000 by default).
+        // main.py handles /api/peers, /api/stats, /api/ai/* and proxies /api/status.
         proxy: {
           '/api': {
-            target: env.VITE_STATUS_API_TARGET || 'http://127.0.0.1:5050',
+            target: apiProxyTarget,
             changeOrigin: true,
           },
         },

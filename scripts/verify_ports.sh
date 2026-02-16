@@ -66,7 +66,8 @@ fi
 
 # --- Curl UI at 8000 ---
 if command -v curl &>/dev/null; then
-  CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ 2>/dev/null || echo "000")
+  CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ 2>/dev/null || true)
+  [ -z "$CODE" ] && CODE="000"
   if [ "$CODE" = "200" ] || [ "$CODE" = "304" ]; then
     report_ok "UI at http://127.0.0.1:8000/ returns $CODE"
   else
