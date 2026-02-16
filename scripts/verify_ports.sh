@@ -29,36 +29,76 @@ report_ok()  { echo -e "${GREEN}✓${NC} $1"; }
 report_fail() { echo -e "${RED}✗${NC} $1"; FAILED=1; }
 report_warn() { echo -e "${YELLOW}!${NC} $1"; }
 
+# Port probe helper:
+# - Prefer `ss` when present
+# - Fall back to `nc` or Python socket connect in minimal environments
+is_port_open() {
+  local port="$1"
+
+  if command -v ss &>/dev/null; then
+    ss -ltn 2>/dev/null | grep -q ":${port}"
+    return $?
+  fi
+
+  if command -v nc &>/dev/null; then
+    nc -z 127.0.0.1 "$port" >/dev/null 2>&1
+    return $?
+  fi
+
+  if command -v python3 &>/dev/null; then
+    python3 - "$port" <<'PY'
+import socket
+import sys
+
+port = int(sys.argv[1])
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(0.5)
+try:
+    rc = s.connect_ex(("127.0.0.1", port))
+    sys.exit(0 if rc == 0 else 1)
+finally:
+    s.close()
+PY
+    return $?
+  fi
+
+  return 1
+}
+
 # --- Optional: kill stale vite preview on 5173 ---
 if [ "$FIX_5173" = true ]; then
-  PID=$(ss -ltnp 2>/dev/null | grep ':5173' | grep -oP 'pid=\K[0-9]+' | head -1)
-  if [ -n "$PID" ]; then
-    CMD=$(ps -p "$PID" -o comm= 2>/dev/null)
-    if echo "$CMD" | grep -q node; then
-      echo "Killing stale process on 5173 (PID $PID)..."
-      kill "$PID" 2>/dev/null || kill -9 "$PID" 2>/dev/null
-      sleep 1
-      report_ok "Freed port 5173 (was: $CMD)"
+  if command -v ss &>/dev/null; then
+    PID=$(ss -ltnp 2>/dev/null | grep ':5173' | grep -oP 'pid=\K[0-9]+' | head -1)
+    if [ -n "$PID" ]; then
+      CMD=$(ps -p "$PID" -o comm= 2>/dev/null)
+      if echo "$CMD" | grep -q node; then
+        echo "Killing stale process on 5173 (PID $PID)..."
+        kill "$PID" 2>/dev/null || kill -9 "$PID" 2>/dev/null
+        sleep 1
+        report_ok "Freed port 5173 (was: $CMD)"
+      fi
     fi
+  else
+    report_warn "--fix-5173 skipped: 'ss' not available in this environment"
   fi
 fi
 
 # --- Assert 5050 is listening (astra-core /api/status) ---
-if ss -ltn 2>/dev/null | grep -q ':5050'; then
+if is_port_open 5050; then
   report_ok "Port 5050 listening (astra-core)"
 else
   report_fail "Port 5050 NOT listening. Start astra-core (e.g. systemctl start astra-core.service)"
 fi
 
 # --- Assert 8000 is listening (Nebula Map UI + API) ---
-if ss -ltn 2>/dev/null | grep -q ':8000'; then
+if is_port_open 8000; then
   report_ok "Port 8000 listening (Nebula Map / astra-nebula)"
 else
   report_fail "Port 8000 NOT listening. Run ./run.sh or start astra-nebula@nebula.service"
 fi
 
 # --- Assert 5173 is free (not required for production, but needed for local vite preview) ---
-if ss -ltn 2>/dev/null | grep -q ':5173'; then
+if is_port_open 5173; then
   report_warn "Port 5173 is in use. Not required for production (use 8000). For local preview, run: ./scripts/verify_ports.sh --fix-5173"
 else
   report_ok "Port 5173 free (or not needed for production)"
